@@ -4,7 +4,7 @@ import os
 import sys
 from typing import List, Optional
 
-from conversation_audit.metrics import Analysis, band, severity
+from conversation_audit.metrics import Analysis, band, biggest_lever, severity
 
 RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
 RED, YELLOW, GREEN, CYAN = "\033[31m", "\033[33m", "\033[32m", "\033[36m"
@@ -128,18 +128,9 @@ def render(a: Analysis, color: Optional[bool] = None) -> str:
         elif a.structure["intent_position"] is None:
             lines.append("  no clear ask or goal detected - what should the listener do?")
 
-    # biggest lever
-    named = {k: v for k, v in a.scores.items()
-             if k != "overall" and v is not None}
-    worst = min(named, key=named.get)
-    tips = {
-        "fluency": "pause silently instead of filling - the silence reads as confidence",
-        "concision": "one thought per sentence; end it, then start the next",
-        "coherence": "finish each sentence before improving it - plan the thought, then say it",
-        "structure": "lead with the ask, then give at most three supporting points",
-    }
+    worst, tip = biggest_lever(a)
     lines.append("")
-    lines.append(paint(f"Biggest lever -> {worst}: {tips[worst]}", CYAN))
+    lines.append(paint(f"Biggest lever -> {worst}: {tip}", CYAN))
     return "\n".join(lines)
 
 

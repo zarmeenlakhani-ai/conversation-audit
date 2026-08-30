@@ -24,6 +24,24 @@ STRUCTURE 35/100
 Biggest lever -> fluency: pause silently instead of filling - the silence reads as confidence
 ```
 
+## Two ways to run it
+
+**1. Fully automatic, zero install (recommended):** a Claude Routine checks
+your connected meeting recorders (Wispr Flow, Granola) every half hour of
+the workday, audits your lines from any meeting that just ended, and sends
+3-5 sharp pointers to your phone and inbox. Nothing runs on your laptop;
+the transcripts never leave the tools that already have them. The routine's
+prompt lives in [`extras/routine-prompt.md`](extras/routine-prompt.md) -
+anyone with the same connectors can ask Claude to recreate it. Manage or
+pause it from your Routines list in Claude.
+
+Coverage note: this covers whatever your recorder captures - Wispr Flow and
+Granola both sit on top of Google Meet, Zoom, and the rest, so "any type of
+transcriber" reduces to "any call your recorder was in." For transcripts
+that arrive as files instead, use the watcher below.
+
+**2. On your machine (for prompts, dictations, transcript files):**
+
 ## Install
 
 ```bash
@@ -39,11 +57,22 @@ No install needed to try it: `python3 -m conversation_audit samples/standup_dict
 
 ```bash
 conversation-audit notes.txt                   # audit a transcript
+conversation-audit notes.txt --brief           # no essay: 3 pointers + a drill
 pbpaste | conversation-audit -                 # audit whatever you just copied
 conversation-audit meeting.txt --speaker "Zarmeen"   # only YOUR lines in a meeting
-conversation-audit watch ~/Transcripts         # audit new files as they land
+conversation-audit watch ~/Transcripts --brief # audit new files as they land
 conversation-audit trends                      # are you improving?
 conversation-audit notes.txt --deep            # + Claude coaching (see below)
+```
+
+`--brief` is the after-a-call view - one header, ranked pointers each ending
+in a fix, one drill (`--pointers N` for up to 10):
+
+```
+hub71_meeting.txt [Zarmeen Lakhani] - Clarity 72/100 (Clear)
+1. 11 broken thoughts (4 stutters, 7 phrase restarts) e.g. "...Yeah, yeah. I, I switched..." -> finish the sentence, then upgrade it.
+2. 4.9 fillers per 100 words (uh x4, um x3 lead) -> swap the um for a silent beat.
+Drill: finish each sentence before improving it - plan the thought, then say it.
 ```
 
 Handy alias for checking a prompt before you send it:

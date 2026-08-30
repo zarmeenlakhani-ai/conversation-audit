@@ -338,6 +338,22 @@ def band(score: int) -> str:
     return "Foggy"
 
 
+LEVER_TIPS = {
+    "fluency": "pause silently instead of filling - the silence reads as confidence",
+    "concision": "one thought per sentence; end it, then start the next",
+    "coherence": "finish each sentence before improving it - plan the thought, then say it",
+    "structure": "lead with the ask, then give at most three supporting points",
+}
+
+
+def biggest_lever(a: Analysis) -> Tuple[str, str]:
+    """The lens with the lowest score, and the matching one-line tip."""
+    named = {k: v for k, v in a.scores.items()
+             if k != "overall" and v is not None}
+    worst = min(named, key=named.get)
+    return worst, LEVER_TIPS[worst]
+
+
 def severity(rate: float, thresholds: Tuple[float, float, float]) -> str:
     low, mid, high = thresholds
     if rate < low:

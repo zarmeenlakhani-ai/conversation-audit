@@ -11,7 +11,7 @@ import json
 import sys
 from typing import List, Optional
 
-from conversation_audit import __version__, metrics, report, store
+from conversation_audit import __version__, brief, metrics, report, store
 from conversation_audit.transcript import load_transcript
 
 COMMANDS = {"analyze", "watch", "trends"}
@@ -37,6 +37,11 @@ def _build_parser() -> argparse.ArgumentParser:
                          " lead, BLUF rewrite (needs Anthropic credentials)")
     analyze.add_argument("--model", help="model for --deep (default: %s)"
                          % "claude-opus-5")
+    analyze.add_argument("--brief", action="store_true",
+                         help="no essay: one header + sharp pointers with"
+                         " recommendations")
+    analyze.add_argument("--pointers", type=int, default=3, metavar="N",
+                         help="pointers to show with --brief, 1-10 (default 3)")
     analyze.add_argument("--json", action="store_true", dest="as_json",
                          help="emit metrics as JSON instead of the report")
     analyze.add_argument("--no-store", action="store_true",
@@ -48,6 +53,8 @@ def _build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--interval", type=float, default=5.0,
                        help="poll interval in seconds (default 5)")
     watch.add_argument("--speaker", metavar="NAME")
+    watch.add_argument("--brief", action="store_true",
+                       help="print sharp pointers instead of the full report")
     watch.add_argument("--deep", action="store_true")
     watch.add_argument("--model")
     watch.add_argument("--once", action="store_true",
@@ -100,6 +107,13 @@ def _run_analyze(args: argparse.Namespace) -> int:
 
         if args.as_json:
             results.append(analysis.to_dict())
+            if args.brief:
+                results[-1]["pointers"] = brief.pointers(analysis,
+                                                         args.pointers)
+        elif args.brief:
+            if i > 0:
+                print()
+            print(brief.render_brief(analysis, args.pointers))
         else:
             if i > 0:
                 print("\n" + "=" * 72 + "\n")
@@ -153,7 +167,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         return watch(args.directory, interval=args.interval,
                      speaker=args.speaker, deep=args.deep, model=args.model,
-                     once=args.once)
+                     once=args.once, brief=args.brief)
     if args.command == "trends":
         rendered = store.render_trends(args.n)
         if rendered is None:

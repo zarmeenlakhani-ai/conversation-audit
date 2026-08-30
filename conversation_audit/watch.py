@@ -13,6 +13,7 @@ import sys
 import time
 from typing import Dict, Optional, Tuple
 
+from conversation_audit import brief as brief_mod
 from conversation_audit import metrics, report, store
 from conversation_audit.transcript import load_transcript
 
@@ -51,7 +52,7 @@ def notify(title: str, body: str) -> None:
 
 
 def _audit_file(path: str, speaker: Optional[str], deep: bool,
-                model: Optional[str]) -> None:
+                model: Optional[str], brief: bool = False) -> None:
     try:
         transcript = load_transcript(path)
         # unlabeled transcripts are solo dictations - audit them whole
@@ -66,7 +67,10 @@ def _audit_file(path: str, speaker: Optional[str], deep: bool,
         print(f"[watch] skipped {path}: {e}", file=sys.stderr)
         return
     print()
-    print(report.render(analysis))
+    if brief:
+        print(brief_mod.render_brief(analysis))
+    else:
+        print(report.render(analysis))
     store.record(analysis)
     notify(os.path.basename(path), report.one_line(analysis))
     if deep:
@@ -81,7 +85,7 @@ def _audit_file(path: str, speaker: Optional[str], deep: bool,
 
 def watch(directory: str, interval: float = 5.0, speaker: Optional[str] = None,
           deep: bool = False, model: Optional[str] = None,
-          once: bool = False) -> int:
+          once: bool = False, brief: bool = False) -> int:
     directory = os.path.abspath(directory)
     if not os.path.isdir(directory):
         print(f"not a directory: {directory}", file=sys.stderr)
@@ -90,7 +94,7 @@ def watch(directory: str, interval: float = 5.0, speaker: Optional[str] = None,
     if once:
         # analyze everything currently in the folder, then exit
         for path in sorted(_scan(directory)):
-            _audit_file(path, speaker, deep, model)
+            _audit_file(path, speaker, deep, model, brief)
         return 0
 
     known = _scan(directory)  # existing files are not re-audited
@@ -108,7 +112,7 @@ def watch(directory: str, interval: float = 5.0, speaker: Optional[str] = None,
                     continue
                 if pending.get(path) == sig:
                     # unchanged for a full interval - safe to read
-                    _audit_file(path, speaker, deep, model)
+                    _audit_file(path, speaker, deep, model, brief)
                     known[path] = sig
                     del pending[path]
                 else:
