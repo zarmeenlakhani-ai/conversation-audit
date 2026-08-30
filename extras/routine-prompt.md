@@ -7,8 +7,18 @@ just ended, isolates the user's own lines, runs this repo's analyzer for
 exact counts, and delivers sharp pointers - never an essay.
 
 Anyone with the same connectors can recreate it by asking Claude:
-"Create a routine with the prompt below, running every 30 minutes during my
-work hours, with my meeting connectors and push notifications."
+"Create a routine with the prompt below, running hourly during my work
+hours, with my meeting connectors and push notifications."
+
+Two wirings, depending on what your org allows:
+
+- **Fresh session per run** (cleanest): the routine spawns a new session
+  each hour carrying your meeting connectors. Some orgs don't allow storing
+  connectors on routines created from a session - create the routine from
+  the claude.ai Routines UI in that case.
+- **Bound to a live session** (the fallback used here): the routine wakes
+  an existing Claude session that already holds the connectors; that
+  session runs the check and delivers the debrief via push notification.
 
 ---
 
