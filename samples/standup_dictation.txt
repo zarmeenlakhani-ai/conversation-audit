@@ -1,0 +1,7 @@
+Okay so, um, quick update on the landing page thing. Basically we, we got the staging link yesterday and I looked at it and the hero section is fine but the pricing table is, um, kind of broken on mobile and the font sizes are inconsistent and the CTA button goes to the old form and I think the testimonials are missing too, right?
+
+So basically... what I was, what I was trying to say is the vendor needs another pass. I feel like, uh, maybe holding the launch. Actually, no. Oh, it's fine, we can launch the hero and hold the pricing page, you know?
+
+Anyway there's also the newsletter thing and the NPS dashboard thing which is, like, a separate issue. Right?
+
+So yeah, basically my ask is can you ping the vendor today and get a timeline, because I want to, um, I want to lock the launch date by Friday.

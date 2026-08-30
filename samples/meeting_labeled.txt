@@ -1,0 +1,8 @@
+Sam Chen: Okay, um, where are we on the launch?
+Jordan Lee: So, um, basically the staging link is ready and I, I sent it yesterday, right?
+Sam Chen: Cool. Did the vendor fix the pricing table?
+Jordan Lee: Uh, kind of. It renders but it, um, it basically breaks on mobile and the fonts are, like, inconsistent and the CTA still points at the old form, you know?
+Sam Chen: Okay. What do you need from me?
+Jordan Lee: I want to... I want you to ping them today, because we should lock the date by Friday.
+Sam Chen: Done. Anything else?
+Jordan Lee: No, that's it. Thanks!
