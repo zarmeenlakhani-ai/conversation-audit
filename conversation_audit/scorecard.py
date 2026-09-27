@@ -1,31 +1,38 @@
 """Speaker scorecard: the levels a brilliant public speaker is judged on.
 
-Eight dimensions, each scored 1.0-5.0 against the same five levels:
+Nine dimensions in four groups, each scored 1.0-5.0 against the same levels:
 
     1 Distracting   2 Developing   3 Solid   4 Strong   5 Brilliant
 
-    STRUCTURE   Am I structured?            framing the point, transitions, closes
-    POINTS      Do I speak in points?       numbered points: "Two things. One..."
-    COMPOSURE   Am I messy?                 restarts, false starts, "no, no" bursts
-    CONCISION   Do I get to the point?      run-on sentences
-    FLUENCY     Do fillers get in the way?  um, uh, filler "like", "you know", crutch words
-    CONFIDENCE  Do I sound sure?            hedges, tag questions, apologies and
-                                            deferrals, offset by clear commitments
-    TONE        How do I come across?       warmth versus edge in word choice
-    IMPACT      Do my points land?          examples, concrete asks and dated
-                                            commitments, minus open-ended offers
+    CONTENT    STRUCTURE   Am I structured?          openers, transitions, closers
+               POINTS      Am I using bullet points? "Two things", "number one", option A
+               CONCISION   Do I get to the point?    run-on sentences
+    DELIVERY   FLUENCY     Do I pause, or fill it?   um/uh/hmm, filler "like", crutch
+                                                     words, phrase fillers
+               COMPOSURE   Am I messy?               restarts, false starts, stutters,
+                                                     self-corrections, "no, no" bursts
+    CERTAINTY  HEDGING     Do I hedge?               "I think", "maybe", other hedges,
+                                                     "I'm not sure"
+               CONFIDENCE  Do I sound sure?          tag questions, apologies, deferrals,
+                                                     pre-disclaimers, offset by commitments
+    EFFECT     TONE        How is my tone?           warm words against sharp ones
+               IMPACT      Do my points land?        examples, asks and dates, minus
+                                                     open-ended offers
 
-Every score comes from an anchor table (metric value -> level) with linear
-interpolation between anchors, so the same words always get the same score.
-The anchors describe what each level sounds like in speech; they are this
-tool's calibration, not a published norm. A transcript can't show voice,
-pace, pauses or body language, so none of those are scored.
+The rows are mutually exclusive: every counted phrase lands in exactly one of
+them (see TALLY), so "sorry, sorry" is one apology, not also a stutter and a
+restart. Every score comes from an anchor table (metric value -> level) with
+linear interpolation, so the same words always get the same score. The
+anchors are this tool's calibration, not a published norm. A transcript
+can't show voice, pace, silent pauses or body language, so none of those are
+scored.
 
 Pure listening turns ("Mm-hmm." "Yeah, okay.") are counted but excluded
 before scoring, so a room where you mostly listened isn't marked down for
 its acknowledgments.
 """
 
+import bisect
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -49,34 +56,49 @@ ACK_WORDS = {
 
 _COUNT = r"(?:two|three|four|five|2|3|4|5)"
 _ORDINAL = r"(?:one|two|three|four|five|1|2|3|4|5)"
-# POINTS: content chunked into numbered points
-ENUM_RE = re.compile(
-    r"\bfirst(?:ly)?,|\bfirstly\b|\bsecondly\b|\bthirdly\b|\bfirst of all\b"
-    r"|(?<!a )(?<!one )(?<!wait a )\bsecond,|\bthird,"
-    rf"|\bnumber {_ORDINAL}\b|\bstep {_ORDINAL}\b|\bpoint {_ORDINAL}\b"
-    rf"|\b{_COUNT} (?:things|points|options|reasons|steps|questions|cases|parts"
+# POINTS: content chunked into numbered points - announcing the count,
+# numbering as you go, or naming options
+ANNOUNCED_RE = re.compile(
+    rf"\b{_COUNT} (?:things|points|options|reasons|steps|questions|cases|parts"
     r"|buckets|problems|ideas|asks|items|priorities|scenarios|pieces|pillars|challenges"
     r"|issues|concerns|goals|updates|topics|blockers|learnings|takeaways|risks"
     r"|decisions|examples|phases|stages|approaches|models|ways)\b"
-    r"|\ba couple of (?:things|points|options|questions)\b"
-    r"|\boption (?:a|b|c|one|two|1|2)\b",
+    r"|\ba couple of (?:things|points|options|questions)\b",
     re.IGNORECASE,
 )
-# STRUCTURE: framing the point, moving between points, and closing
-FRAME_RE = re.compile(
+ORDINAL_RE = re.compile(
+    r"\bfirst(?:ly)?,|\bfirstly\b|\bsecondly\b|\bthirdly\b|\bfirst of all\b"
+    r"|(?<!a )(?<!one )(?<!wait a )\bsecond,|\bthird,"
+    rf"|\bnumber {_ORDINAL}\b|\bstep {_ORDINAL}\b|\bpoint {_ORDINAL}\b",
+    re.IGNORECASE,
+)
+OPTION_RE = re.compile(r"\boption (?:a|b|c|one|two|1|2)\b", re.IGNORECASE)
+ENUM_RE = re.compile("|".join(r.pattern for r in (ORDINAL_RE, ANNOUNCED_RE, OPTION_RE)),
+                     re.IGNORECASE)
+
+# STRUCTURE: opening with the point, moving between points, and closing
+OPENER_RE = re.compile(
     r"\bthe (?:point|goal|ask|plan|takeaway|decision|problem|issue|agenda|priority"
     r"|context|idea|question|thing|reason|difference|challenge|risk|catch|summary)"
     r" (?:is|here is|here's)\b"
     r"|\bmy (?:ask|question|point|recommendation|proposal|suggestion) is\b"
     r"|\b(?:the|our|my) (?:goal|aim|ask|plan|idea|priority|agenda)\b(?:\s+[\w'-]+){1,6}?\s+is\b"
     r"|\bwhat i(?: am|'m)? (?:need|want|asking|suggesting|proposing) is\b"
-    r"|\bhere'?s (?:the thing|what i|my)\b|\bthe agenda\b|\blet me (?:start|begin) with\b"
-    r"|\bto (?:recap|summarize|summarise|sum up)\b|\bin summary\b|\bbottom line\b"
-    r"|\bin short\b|\blong story short\b|\bnext steps?\b|\baction items?\b"
-    r"|\bmoving on\b|\bthe other (?:thing|point|piece|question)\b"
+    r"|\bhere'?s (?:the thing|what i|my)\b|\bthe agenda\b|\blet me (?:start|begin) with\b",
+    re.IGNORECASE,
+)
+TRANSITION_RE = re.compile(
+    r"\bmoving on\b|\bthe other (?:thing|point|piece|question)\b"
     r"|\b(?:one )?last (?:thing|point|question)\b|\bfinally,",
     re.IGNORECASE,
 )
+CLOSER_RE = re.compile(
+    r"\bto (?:recap|summarize|summarise|sum up)\b|\bin summary\b|\bbottom line\b"
+    r"|\bin short\b|\blong story short\b|\bnext steps?\b|\baction items?\b",
+    re.IGNORECASE,
+)
+FRAME_RE = re.compile("|".join(r.pattern for r in (OPENER_RE, TRANSITION_RE, CLOSER_RE)),
+                      re.IGNORECASE)
 
 # --- COMPOSURE -----------------------------------------------------------------
 
@@ -86,15 +108,33 @@ LONG_NO_BURST_RE = re.compile(r"\bno(?:,?\s+no){2,}\b", re.IGNORECASE)
 # --- FLUENCY -------------------------------------------------------------------
 
 SPOKEN_HESITATION_RE = re.compile(r"\b(?:u+m+|u+h+|e+r+m+|hmm+)\b", re.IGNORECASE)
+UM_RE = re.compile(r"\b(?:u+m+|e+r+m+)\b", re.IGNORECASE)
+UH_RE = re.compile(r"\b(?:u+h+|hmm+)\b", re.IGNORECASE)
 
-# --- CONFIDENCE ----------------------------------------------------------------
+# --- HEDGING -------------------------------------------------------------------
 
+I_THINK_RE = re.compile(r"\bi think\b", re.IGNORECASE)
+MAYBE_RE = re.compile(r"\bmaybe\b", re.IGNORECASE)
+# the rest of the analyzer's hedges, so the three rows together are HEDGE_RE
+OTHER_HEDGE_RE = re.compile(
+    r"\b(?:i feel like|i feel that|i guess|i suppose|probably|possibly|a little bit"
+    r"|a bit|somewhat|hopefully)\b",
+    re.IGNORECASE,
+)
 UNSURE_RE = re.compile(
     r"\bi'?m not (?:super |very |too |really |a hundred percent |100% )?sure\b"
     r"|\bnot sure\b|\bi don'?t know\b|\bi'?m not certain\b",
     re.IGNORECASE,
 )
+
+# --- CONFIDENCE ----------------------------------------------------------------
+
+RIGHT_TAG_RE = re.compile(r"\bright\s*\?", re.IGNORECASE)
+OTHER_TAG_RE = re.compile(r"\b(?:okay|ok|yeah|you know)\s*\?", re.IGNORECASE)
 APOLOGY_RE = re.compile(r"\b(?:sorry|i apologi[sz]e|my bad)\b", re.IGNORECASE)
+# "sorry, sorry, sorry" is one apology
+APOLOGY_BURST_RE = re.compile(
+    r"\b(?:sorry|i apologi[sz]e|my bad)(?:[,.]?\s+sorry)*\b", re.IGNORECASE)
 DEFERRAL_RE = re.compile(
     r"\bgive me (?:a )?(?:little |bit of |couple of |few )?"
     r"(?:time|minutes?|moment|sec(?:ond)?s?|days?)\b"
@@ -158,12 +198,13 @@ ASK_RE = re.compile(
     r"|update|add|fix|look|get|make|do|set|move|put|give|tell|ping|email|book"
     r"|create|help|show|draft|prepare|finalize|finalise)\b"
     r"|\bplease (?:send|share|check|confirm|update|add|fix|review|make|do|tell|ping)\b"
-    rf"|\bnext steps? (?:for|is|are|will)\b|\bby {_DAY}\b"
+    r"|\bnext steps? (?:for|is|are|will)\b"
     r"|\b(?:i'll|i will|we'll|we will) (?:send|share|get you|fix|update|build|call|ping"
     r"|email|set up|put together|draft|follow up|confirm|talk to|circulate|schedule"
     r"|book|deliver|finish|research)\b",
     re.IGNORECASE,
 )
+DATE_RE = re.compile(rf"\bby {_DAY}\b", re.IGNORECASE)
 OPEN_OFFER_RE = re.compile(
     r"\blet me know if\b|\bif you want(?: me)?(?: to)?\b|\bdo you need (?:any|anything)\b"
     r"|\banything (?:else )?i can\b|\bhappy to help\b"
@@ -176,54 +217,68 @@ OPEN_OFFER_RE = re.compile(
 # scores fall as the value rises.
 
 ANCHORS: Dict[str, List[Tuple[float, float]]] = {
-    # framing, transition and closing lines per 1,000 words
+    # openers, transitions and closers per 1,000 words
     "structure": [(0.0, 1.0), (0.8, 2.0), (1.8, 3.0), (3.2, 4.0), (5.0, 5.0)],
     # numbered points (counts, ordinals, options) per 1,000 words
     "points": [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0)],
-    # restarts + false starts + real stutters + self-corrections + "no, no"
-    # bursts, per 100 words
-    "composure": [(0.5, 5.0), (1.0, 4.0), (1.7, 3.0), (2.5, 2.0), (3.5, 1.0)],
     # run-on sentences per 1,000 words
     "concision": [(0.8, 5.0), (1.6, 4.0), (2.8, 3.0), (4.0, 2.0), (5.5, 1.0)],
-    # spoken fillers per 100 words
+    # filled pauses, filler "like", phrase fillers and crutch words per 100 words
     "fluency": [(0.7, 5.0), (1.3, 4.0), (2.0, 3.0), (3.0, 2.0), (4.0, 1.0)],
-    # net tentative markers per 100 words
-    "confidence": [(0.6, 5.0), (1.1, 4.0), (1.7, 3.0), (2.4, 2.0), (3.2, 1.0)],
+    # restarts + false starts + stutters + self-corrections + "no, no" bursts,
+    # per 100 words
+    "composure": [(0.5, 5.0), (1.0, 4.0), (1.7, 3.0), (2.5, 2.0), (3.5, 1.0)],
+    # hedges ("I think", "maybe", "I'm not sure"...) per 100 words
+    "hedging": [(0.3, 5.0), (0.6, 4.0), (1.0, 3.0), (1.4, 2.0), (1.9, 1.0)],
+    # tag questions, apologies, deferrals and pre-disclaimers, minus half the
+    # clear commitments, per 100 words
+    "confidence": [(0.15, 5.0), (0.35, 4.0), (0.65, 3.0), (1.0, 2.0), (1.4, 1.0)],
     # warm words minus sharp ones, per 1,000 words
     "tone": [(-2.0, 1.0), (0.0, 2.0), (2.0, 3.0), (4.0, 4.0), (6.0, 5.0)],
-    # examples + concrete asks/commitments - open offers, per 1,000 words
+    # examples + asks + dates named - open offers, per 1,000 words
     "impact": [(0.0, 1.0), (1.5, 2.0), (3.0, 3.0), (5.0, 4.0), (7.0, 5.0)],
 }
 
 DIMENSIONS: List[Tuple[str, str, str]] = [
     ("structure", "Structure", "Am I structured?"),
-    ("points", "Points", "Do I speak in points?"),
-    ("composure", "Composure", "Am I messy?"),
+    ("points", "Points", "Am I using bullet points?"),
     ("concision", "Concision", "Do I get to the point?"),
-    ("fluency", "Fluency", "Do fillers get in the way?"),
+    ("fluency", "Fluency", "Do I pause, or fill it?"),
+    ("composure", "Composure", "Am I messy?"),
+    ("hedging", "Hedging", "Do I hedge?"),
     ("confidence", "Confidence", "Do I sound sure?"),
-    ("tone", "Tone", "How do I come across?"),
+    ("tone", "Tone", "How is my tone?"),
     ("impact", "Impact", "Do my points land?"),
 ]
 
+# the four groups the dimensions fall into, in reading order
+GROUPS: List[Tuple[str, str, List[str]]] = [
+    ("Content", "what you said", ["structure", "points", "concision"]),
+    ("Delivery", "how it came out", ["fluency", "composure"]),
+    ("Certainty", "how sure you sounded", ["hedging", "confidence"]),
+    ("Effect", "how it landed", ["tone", "impact"]),
+]
+
 BRILLIANT = {
-    "structure": "frames, signposts and closes: 5+ lines like \"The ask is...\" or \"Next steps...\" per 1,000 words",
+    "structure": "5+ openers, transitions or closers per 1,000 words: \"The ask is...\", \"Next steps...\"",
     "points": "4+ numbered points per 1,000 words: \"Two things. One... Two...\"",
-    "composure": "a restart no more than once every 200 words",
     "concision": "under one run-on sentence per 1,200 words",
     "fluency": "under one filler every 140 words",
-    "confidence": "under one hedge, tag question or apology every 160 words",
+    "composure": "a restart no more than once every 200 words",
+    "hedging": "under one hedge every 330 words",
+    "confidence": "under one tag question, apology or deferral every 650 words, net of commitments",
     "tone": "warm and steady: 6+ more warm words than sharp ones per 1,000",
-    "impact": "7+ examples, concrete asks or dated commitments per 1,000 words",
+    "impact": "7+ examples, asks or dates named per 1,000 words",
 }
 
 FIXES = {
-    "structure": "open every long answer with its count: \"Two things.\"",
+    "structure": "open every long answer with its count and its point: \"Two things. The ask is...\"",
     "points": "when an answer runs past three sentences, number it: \"One... Two...\"",
-    "composure": "finish the sentence you started, then improve it in the next one",
     "concision": "one thought per sentence: end it, then start the next",
     "fluency": "leave a silent beat where the um wants to go",
-    "confidence": "say the claim bare; save one real check-question for the end",
+    "composure": "finish the sentence you started, then improve it in the next one",
+    "hedging": "drop the \"I think\": pause, then say the claim bare",
+    "confidence": "end claims on a period; save one real check-question for the end",
     "tone": "in disagreement, one \"No.\" and the fact; thank people by name",
     "impact": "every offer gets a thing and a day: \"I'll send X by Y.\"",
 }
@@ -260,6 +315,80 @@ def _words(text: str) -> int:
 
 def _count(regex: re.Pattern, text: str) -> int:
     return sum(1 for _ in regex.finditer(text))
+
+
+def _spans(regex: re.Pattern, text: str) -> List[Tuple[int, int]]:
+    return [m.span() for m in regex.finditer(text)]
+
+
+def _stutter_spans(text: str) -> List[Tuple[int, int]]:
+    # "I, I" - not stacked acknowledgments ("yeah, yeah") and not "no, no",
+    # which has its own row
+    return [m.span() for m in metrics.STUTTER_RE.finditer(text)
+            if m.group(1).lower() not in ACK_WORDS and not m.group(1).isdigit()]
+
+
+def _restart_spans(text: str) -> List[Tuple[int, int]]:
+    """The re-launched word pair of each phrase restart."""
+    toks = list(metrics.WORD_RE.finditer(text))
+    words = [m.group(0).lower() for m in toks]
+    return [(toks[i].start(), toks[i + 1].end())
+            for i in metrics._phrase_restarts(words)
+            if not all(w in ACK_WORDS for w in words[i:i + 2])]
+
+
+def _false_start_spans(text: str) -> List[Tuple[int, int]]:
+    return (_spans(metrics.ELLIPSIS_RE, text.rstrip("."))
+            + _spans(metrics.DASH_CUTOFF_RE, text))
+
+
+# Every row of the scorecard, in the order rows claim words. When patterns
+# overlap ("sorry, sorry" is an apology, a stutter and a restart; "let me know
+# if" is a deferral and an open offer), the first row listed takes the phrase
+# and later rows skip it, so each phrase is counted exactly once.
+TALLY: List[Tuple[str, object]] = [
+    ("no_bursts", NO_BURST_RE),
+    ("apologies", APOLOGY_BURST_RE),
+    ("open_offers", OPEN_OFFER_RE),
+    ("predisclaimers", PREDISCLAIMER_RE),
+    ("openers", OPENER_RE), ("transitions", TRANSITION_RE), ("closers", CLOSER_RE),
+    ("announced", ANNOUNCED_RE), ("ordinals", ORDINAL_RE), ("options", OPTION_RE),
+    ("examples", EXAMPLE_RE), ("asks", ASK_RE), ("dates", DATE_RE),
+    ("right_tags", RIGHT_TAG_RE), ("other_tags", OTHER_TAG_RE),
+    ("not_sure", UNSURE_RE), ("i_think", I_THINK_RE), ("maybe", MAYBE_RE),
+    ("other_hedges", OTHER_HEDGE_RE),
+    ("deferrals", DEFERRAL_RE), ("commitments", COMMIT_RE),
+    ("sharp", EDGE_RE), ("warm", WARM_RE),
+    ("um", UM_RE), ("uh", UH_RE), ("like", metrics.LIKE_FILLER_RE),
+    ("phrase_fillers", metrics.PHRASE_FILLER_RE), ("crutch", metrics.CRUTCH_RE),
+    ("stutters", _stutter_spans), ("self_corrections", metrics.CORRECTION_RE),
+    ("restarts", _restart_spans), ("false_starts", _false_start_spans),
+]
+
+
+def claims(text: str) -> List[Tuple[str, int, int]]:
+    """(row, start, end) for every counted phrase; no two share a character."""
+    kept: List[Tuple[str, int, int]] = []
+    starts: List[int] = []
+    ends: List[int] = []
+    for row, find in TALLY:
+        spans = find(text) if callable(find) else _spans(find, text)
+        for s, e in spans:
+            i = bisect.bisect_left(starts, e)
+            if i and ends[i - 1] > s:
+                continue  # an earlier row already counted these words
+            starts.insert(i, s)
+            ends.insert(i, e)
+            kept.append((row, s, e))
+    return kept
+
+
+def tally(text: str) -> Dict[str, int]:
+    """Count every row, giving each overlapping phrase to the first row that claims it."""
+    counts = {row: 0 for row, _ in TALLY}
+    for row, _, _ in claims(text):
+        counts[row] += 1
+    return counts
 
 
 @dataclass
@@ -348,77 +477,47 @@ def build(turns: Sequence[str], source: str = "text") -> Scorecard:
     a = metrics.analyze(text, source=source)
     per100 = 100.0 / words
     perk = 1000.0 / words
+    t = tally(text)
 
-    frames = _count(FRAME_RE, text)
-    enums = _count(ENUM_RE, text)
+    frames = t["openers"] + t["transitions"] + t["closers"]
+    enums = t["announced"] + t["ordinals"] + t["options"]
+    fillers = t["um"] + t["uh"] + t["like"] + t["phrase_fillers"] + t["crutch"]
+    mess = (t["restarts"] + t["false_starts"] + t["stutters"]
+            + t["self_corrections"] + t["no_bursts"])
+    hedges = t["i_think"] + t["maybe"] + t["other_hedges"] + t["not_sure"]
+    tentative = (t["right_tags"] + t["other_tags"] + t["apologies"]
+                 + t["deferrals"] + t["predisclaimers"])
+    net_tentative = max(0.0, tentative - 0.5 * t["commitments"])
+    warm, edge = t["warm"], t["sharp"]
+    we, me = _count(WE_RE, text), _count(I_RE, text)
+    impact = max(0.0, t["examples"] + t["asks"] + t["dates"] - t["open_offers"])
 
-    no_bursts = _count(NO_BURST_RE, text)
-    real_stutters = sum(
-        1 for m in metrics.STUTTER_RE.finditer(text)
-        if m.group(1).lower() not in ACK_WORDS and not m.group(1).isdigit()
-    )
-    mess = (a.repairs["false starts"] + a.repairs["phrase restarts"]
-            + a.repairs["self-corrections"] + real_stutters + no_bursts)
+    names = {k: (n, q) for k, n, q in DIMENSIONS}
 
-    hes = _count(SPOKEN_HESITATION_RE, text)
-    like = _count(metrics.LIKE_FILLER_RE, text)
-    phrase = _count(metrics.PHRASE_FILLER_RE, text)
-    crutch = _count(metrics.CRUTCH_RE, text)
-    fillers = hes + like + phrase + crutch
+    def dim(key: str, value: float, detail: Dict[str, float]) -> Dimension:
+        return Dimension(key, *names[key], round(value, 2), scored(key, value), detail)
 
-    hedges = _count(metrics.HEDGE_RE, text) + _count(UNSURE_RE, text)
-    tags = _count(metrics.TAG_QUESTION_RE, text)
-    apologies = _count(APOLOGY_RE, text)
-    deferrals = _count(DEFERRAL_RE, text)
-    predis = _count(PREDISCLAIMER_RE, text)
-    commits = _count(COMMIT_RE, text)
-    tentative = hedges + tags + apologies + deferrals + predis
-    net_tentative = max(0.0, tentative - 0.5 * commits)
-
-    warm = _count(WARM_RE, text)
-    edge = _count(EDGE_RE, text) + _count(LONG_NO_BURST_RE, text)
-    we = _count(WE_RE, text)
-    me = _count(I_RE, text)
-
-    examples = _count(EXAMPLE_RE, text)
-    asks = _count(ASK_RE, text)
-    open_offers = _count(OPEN_OFFER_RE, text)
-    impact = max(0.0, examples + asks - open_offers)
+    def rows(*keys: str) -> Dict[str, float]:
+        return {k: t[k] for k in keys}
 
     dims = [
-        Dimension("structure", "Structure", "Am I structured?",
-                  round(frames * perk, 2), scored("structure", frames * perk),
-                  {"framing_lines": frames}),
-        Dimension("points", "Points", "Do I speak in points?",
-                  round(enums * perk, 2), scored("points", enums * perk),
-                  {"numbered_points": enums}),
-        Dimension("composure", "Composure", "Am I messy?",
-                  round(mess * per100, 2), scored("composure", mess * per100),
-                  {"restarts": a.repairs["phrase restarts"],
-                   "false_starts": a.repairs["false starts"],
-                   "stutters": real_stutters,
-                   "self_corrections": a.repairs["self-corrections"],
-                   "no_bursts": no_bursts}),
-        Dimension("concision", "Concision", "Do I get to the point?",
-                  round(a.run_ons * perk, 2), scored("concision", a.run_ons * perk),
-                  {"run_ons": a.run_ons, "longest": a.longest_sentence[0]}),
-        Dimension("fluency", "Fluency", "Do fillers get in the way?",
-                  round(fillers * per100, 2), scored("fluency", fillers * per100),
-                  {"hesitations": hes, "like": like, "phrases": phrase,
-                   "crutch": crutch}),
-        Dimension("confidence", "Confidence", "Do I sound sure?",
-                  round(net_tentative * per100, 2),
-                  scored("confidence", net_tentative * per100),
-                  {"hedges": hedges, "tags": tags, "apologies": apologies,
-                   "deferrals": deferrals, "predisclaimers": predis,
-                   "commitments": commits}),
-        Dimension("tone", "Tone", "How do I come across?",
-                  round((warm - edge) * perk, 2), scored("tone", (warm - edge) * perk),
-                  {"warmth": warm, "edge": edge,
-                   "we_share": round(we / (we + me), 2) if we + me else 0.0}),
-        Dimension("impact", "Impact", "Do my points land?",
-                  round(impact * perk, 2), scored("impact", impact * perk),
-                  {"examples": examples, "asks": asks, "open_offers": open_offers}),
+        dim("structure", frames * perk, rows("openers", "transitions", "closers")),
+        dim("points", enums * perk, rows("announced", "ordinals", "options")),
+        dim("concision", a.run_ons * perk,
+            {"run_ons": a.run_ons, "longest": a.longest_sentence[0],
+             "avg_sentence": a.rates["avg_sentence_words"]}),
+        dim("fluency", fillers * per100,
+            rows("um", "uh", "like", "phrase_fillers", "crutch")),
+        dim("composure", mess * per100,
+            rows("restarts", "false_starts", "stutters", "self_corrections", "no_bursts")),
+        dim("hedging", hedges * per100, rows("i_think", "maybe", "other_hedges", "not_sure")),
+        dim("confidence", net_tentative * per100,
+            rows("right_tags", "other_tags", "apologies", "deferrals", "predisclaimers",
+                 "commitments")),
+        dim("tone", (warm - edge) * perk,
+            {"warm": warm, "sharp": edge,
+             "we_share": round(we / (we + me), 2) if we + me else 0.0}),
+        dim("impact", impact * perk, rows("examples", "asks", "dates", "open_offers")),
     ]
     label = tone_label(warm * perk, edge * perk) if words >= MIN_WORDS_JUDGED else None
     return Scorecard(source, words, len(turns), listening, dims, label)

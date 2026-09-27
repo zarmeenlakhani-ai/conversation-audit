@@ -44,21 +44,43 @@ class ScoreTests(unittest.TestCase):
     def test_crisp_beats_messy_everywhere_it_matters(self):
         crisp = scorecard.build(CRISP, "crisp")
         messy = scorecard.build(MESSY, "messy")
-        for key in ("structure", "points", "composure", "fluency", "confidence", "tone", "impact"):
+        for key in ("structure", "points", "composure", "fluency", "hedging", "confidence",
+                    "tone", "impact"):
             self.assertGreater(crisp.dimension(key).score, messy.dimension(key).score, key)
         self.assertGreaterEqual(crisp.overall, 4.0)
         self.assertLessEqual(messy.overall, 2.5)
 
-    def test_confidence_counts_hedges_tags_apologies_and_deferrals(self):
-        d = scorecard.build(MESSY, "messy").dimension("confidence").detail
-        self.assertGreater(d["hedges"], 0)
-        self.assertGreater(d["tags"], 0)
-        self.assertGreater(d["apologies"], 0)
-        self.assertGreater(d["deferrals"], 0)
+    def test_hedging_and_confidence_count_their_own_rows(self):
+        card = scorecard.build(MESSY, "messy")
+        h = card.dimension("hedging").detail
+        self.assertGreater(h["i_think"] + h["maybe"] + h["other_hedges"], 0)
+        c = card.dimension("confidence").detail
+        self.assertGreater(c["right_tags"] + c["other_tags"], 0)
+        self.assertGreater(c["apologies"], 0)
+        self.assertGreater(c["deferrals"], 0)
 
     def test_points_counts_numbered_delivery(self):
         d = scorecard.build(CRISP, "crisp").dimension("points").detail
-        self.assertGreaterEqual(d["numbered_points"], 4 * 6)
+        self.assertGreaterEqual(d["announced"] + d["ordinals"] + d["options"], 4 * 6)
+
+    def test_each_phrase_is_counted_once(self):
+        cases = {
+            "I'm sorry, sorry, sorry. While we're here.": {"apologies": 1},
+            "No, no, no, no, that's not what I was saying.": {"no_bursts": 1, "sharp": 1},
+            "Okay, let me know if you want me to help on anything.": {"open_offers": 1},
+            "I need you to push AWS by Friday.": {"asks": 1, "dates": 1},
+            "Next steps for you guys is that you will check.": {"closers": 1},
+            "Wait, wait, wait, let me take a screenshot.": {"stutters": 1},
+        }
+        for text, expected in cases.items():
+            counts = {k: v for k, v in scorecard.tally(text).items() if v}
+            self.assertEqual(counts, expected, text)
+
+    def test_rows_never_share_words(self):
+        spans = sorted((s, e) for _, s, e in scorecard.claims("\n".join(MESSY + CRISP)))
+        self.assertGreater(len(spans), 20)
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            self.assertLessEqual(end, start)
 
     def test_listening_turns_are_set_aside(self):
         card = scorecard.build(CRISP + ["Mm-hmm.", "Yeah, okay.", "Perfect."], "x")
@@ -79,7 +101,7 @@ class ScoreTests(unittest.TestCase):
     def test_name_misheard_as_profanity_is_not_edge(self):
         # transcribers can turn a colleague's name into an expletive; it must not read as tone
         card = scorecard.build(["I'll confirm with fucker tomorrow and send the plan."] * 40, "x")
-        self.assertEqual(card.dimension("tone").detail["edge"], 0)
+        self.assertEqual(card.dimension("tone").detail["sharp"], 0)
 
     def test_render_lists_every_dimension(self):
         out = scorecard.render(scorecard.build(CRISP, "crisp"))
@@ -147,7 +169,7 @@ class CliTests(unittest.TestCase):
                 cli.main(["analyze", path, "--scorecard", "--json", "--no-store"])
             data = json.loads(buf.getvalue())
             self.assertIn("scorecard", data)
-            self.assertEqual(len(data["scorecard"]["dimensions"]), 8)
+            self.assertEqual(len(data["scorecard"]["dimensions"]), len(scorecard.DIMENSIONS))
 
 
 if __name__ == "__main__":

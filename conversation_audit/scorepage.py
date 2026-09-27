@@ -52,10 +52,12 @@ def metric_text(d: dict, tone_label: Optional[str]) -> str:
     if v is None:
         return "Not enough speech to score."
     if k == "structure":
-        return (f"{x['framing_lines']} framing or closing lines (“The ask is…”,"
+        n = x["openers"] + x["transitions"] + x["closers"]
+        return (f"{n} openers, transitions or closers (“The ask is…”,"
                 f" “Next steps…”): {v:g} per 1,000 words")
     if k == "points":
-        return (f"{x['numbered_points']} numbered points (“two things”, “number one”):"
+        n = x["announced"] + x["ordinals"] + x["options"]
+        return (f"{n} numbered points (“two things”, “number one”):"
                 f" {v:g} per 1,000 words")
     if k == "composure":
         return (f"{v:g} restarts, false starts or “no, no” bursts per 100 words"
@@ -64,20 +66,24 @@ def metric_text(d: dict, tone_label: Optional[str]) -> str:
         return (f"{x['run_ons']} run-on sentences, {v:g} per 1,000 words;"
                 f" longest {x['longest']} words")
     if k == "fluency":
-        return (f"{v:g} fillers per 100 words: um/uh {x['hesitations']}, “like” {x['like']},"
+        return (f"{v:g} fillers per 100 words: um/uh {x['um'] + x['uh']}, “like” {x['like']},"
                 f" crutch words {x['crutch']}")
+    if k == "hedging":
+        n = x["i_think"] + x["maybe"] + x["other_hedges"] + x["not_sure"]
+        return (f"{n} hedges (“I think” {x['i_think']}, “maybe” {x['maybe']}):"
+                f" {v:g} per 100 words")
     if k == "confidence":
-        tentative = (x["hedges"] + x["tags"] + x["apologies"] + x["deferrals"]
+        tentative = (x["right_tags"] + x["other_tags"] + x["apologies"] + x["deferrals"]
                      + x["predisclaimers"])
-        return (f"{tentative} hedges, tag questions or apologies against {x['commitments']}"
+        return (f"{tentative} tag questions, apologies or deferrals against {x['commitments']}"
                 f" clear commitments ({v:g} net per 100 words)")
     if k == "tone":
         we = int(round(100 * x["we_share"]))
         label = f"{tone_label}: " if tone_label else ""
-        return (f"{label}{x['warmth']} warm words against {x['edge']} sharp ones;"
+        return (f"{label}{x['warm']} warm words against {x['sharp']} sharp ones;"
                 f" “we” is {we}% of your pronouns")
     if k == "impact":
-        return (f"{x['examples']} examples and {x['asks']} concrete asks or dated commitments,"
+        return (f"{x['examples']} examples and {x['asks'] + x['dates']} asks or dates named,"
                 f" against {x['open_offers']} open-ended offers")
     return ""
 
@@ -90,7 +96,8 @@ def _target_text(key: str, target_score: float) -> str:
         "composure": ("restarts per 100 words", "under"),
         "concision": ("run-ons per 1,000 words", "under"),
         "fluency": ("fillers per 100 words", "under"),
-        "confidence": ("net hedges per 100 words", "under"),
+        "hedging": ("hedges per 100 words", "under"),
+        "confidence": ("net tag questions and apologies per 100 words", "under"),
         "tone": ("more warm than sharp words per 1,000", "at least"),
         "impact": ("examples, asks or dated commitments per 1,000 words", "at least"),
     }[key]
@@ -397,27 +404,34 @@ def plain_answer(d: dict, card: dict) -> str:
         return line + "."
     if k == "structure":
         verdict = {1: "Not yet", 2: "Not yet", 3: "Partly", 4: "Mostly", 5: "Yes"}[lvl]
-        n = x["framing_lines"]
+        n = x["openers"] + x["transitions"] + x["closers"]
         if not n:
             return f"{verdict}: no framing lines (\u201cThe ask is\u2026\u201d, \u201cNext steps\u2026\u201d) in {words:,} words."
         return (f"{verdict}: you framed, moved between or closed a point {n} times,"
                 f" about once every {words / n:,.0f} words.")
     if k == "points":
         verdict = {1: "Rarely", 2: "Sometimes", 3: "Often enough", 4: "Yes", 5: "Yes, consistently"}[lvl]
-        n = x["numbered_points"]
+        n = x["announced"] + x["ordinals"] + x["options"]
         if not n:
             return f"{verdict}: no numbered points in {words:,} words."
         return (f"{verdict}: {n} numbered points (\u201ctwo things\u201d, \u201cnumber one\u201d),"
                 f" about one every {words / n:,.0f} words.")
     if k == "tone":
         we = int(round(100 * x["we_share"]))
-        return (f"{card.get('tone_label') or 'Mixed'}: {x['warmth']} warm words against"
-                f" {x['edge']} sharp ones, and \u201cwe\u201d in {we}% of your pronouns.")
+        return (f"{card.get('tone_label') or 'Mixed'}: {x['warm']} warm words against"
+                f" {x['sharp']} sharp ones, and \u201cwe\u201d in {we}% of your pronouns.")
     if k == "confidence":
         verdict = {1: "Unsure", 2: "Often unsure", 3: "Mostly sure", 4: "Sure", 5: "Very sure"}[lvl]
         every = 100.0 / v if v else 0
-        tail = f"a hedge, tag question or apology about once every {every:.0f} words" if v else "almost no hedging"
+        tail = (f"a tag question, apology or deferral about once every {every:.0f} words"
+                if v else "almost no tag questions or apologies")
         return f"{verdict}: {tail}, with {x['commitments']} clear commitments."
+    if k == "hedging":
+        verdict = {1: "Constantly", 2: "Often", 3: "Sometimes", 4: "Rarely", 5: "Almost never"}[lvl]
+        every = 100.0 / v if v else 0
+        tail = f"a hedge about once every {every:.0f} words" if v else "no hedges"
+        return (f"{verdict}: {tail} (\u201cI think\u201d {x['i_think']},"
+                f" \u201cmaybe\u201d {x['maybe']}).")
     return metric_text(d, card.get("tone_label"))
 
 
@@ -566,7 +580,8 @@ _UNITS = {
     "composure": "restarts, false starts, real stutters, self-corrections and “no, no” bursts per 100 words (lower is better)",
     "concision": "run-on sentences per 1,000 words (lower is better)",
     "fluency": "um, uh, filler “like”, “you know” and crutch words per 100 words (lower is better)",
-    "confidence": "hedges, tag questions, apologies and deferrals minus half your clear commitments, per 100 words (lower is better)",
+    "hedging": "hedges (“I think”, “maybe”, “I'm not sure”) per 100 words (lower is better)",
+    "confidence": "tag questions, apologies, deferrals and pre-disclaimers minus half your clear commitments, per 100 words (lower is better)",
     "tone": "warm words minus sharp ones per 1,000 words",
-    "impact": "examples, concrete asks and dated commitments minus open-ended offers, per 1,000 words",
+    "impact": "examples, asks and dates named minus open-ended offers, per 1,000 words",
 }

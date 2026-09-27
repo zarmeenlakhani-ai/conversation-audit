@@ -108,34 +108,40 @@ fillers  █▇▆▆▄▃▂▁  (down = better)
 ## The speaker scorecard
 
 The clarity score answers "was that clear?". The scorecard answers the
-questions a speaking coach asks — *am I messy, am I structured, do I speak in
-points, how is my tone, how confident do I sound* — on eight dimensions, each
-on the same five levels: **1 Distracting · 2 Developing · 3 Solid · 4 Strong
-· 5 Brilliant**.
+questions a speaking coach asks — *am I structured, do I get to the point, do
+I fill my pauses, am I messy, do I hedge, how sure and how warm do I sound* —
+on nine dimensions, each on the same five levels: **1 Distracting ·
+2 Developing · 3 Solid · 4 Strong · 5 Brilliant**.
 
-| Dimension | Question | Measured as |
-|---|---|---|
-| **Structure** | Am I structured? | framing, transition and closing lines per 1,000 words |
-| **Points** | Do I speak in points? | enumerations ("two things", "number one", "first,") per 1,000 words |
-| **Composure** | Am I messy? | restarts, false starts, stutters, self-corrections and "no, no" bursts per 100 words |
-| **Concision** | Do I get to the point? | run-on sentences per 1,000 words |
-| **Fluency** | Do fillers get in the way? | um/uh, filler "like", phrase fillers and crutch words per 100 words |
-| **Confidence** | Do I sound sure? | hedges, tag questions, apologies, deferrals and pre-disclaimers, net of half-weighted commitments, per 100 words |
-| **Tone** | How do I come across? | warm phrases minus confrontational ones per 1,000 words, plus a label ("Warm and steady", "Cool, sharp in disagreement") |
-| **Impact** | Do my points land? | examples and dated asks or commitments, minus open-ended offers, per 1,000 words |
+It is MECE: every counted phrase lands in exactly one row. When two patterns
+want the same words ("sorry, sorry" is an apology, a stutter and a restart;
+"let me know if" is a deferral and an open-ended offer), the row listed first
+in `TALLY` keeps them and the others skip them.
+
+| Group | Dimension | Question | Rows underneath |
+|---|---|---|---|
+| Content | **Structure** | Am I structured? | openers ("The ask is…"), transitions ("The other thing"), closers ("Next steps") |
+| | **Points** | Am I using bullet points? | counts announced ("two things"), points numbered ("first,"), options named |
+| | **Concision** | Do I get to the point? | run-on sentences, longest and average sentence |
+| Delivery | **Fluency** | Do I pause, or fill it? | "um", "uh"/"hmm", filler "like", phrase fillers, crutch words |
+| | **Composure** | Am I messy? | restarts, stutters, false starts, self-corrections, "no, no" bursts |
+| Certainty | **Hedging** | Do I hedge? | "I think", "maybe", other hedges, "I'm not sure" |
+| | **Confidence** | Do I sound sure? | "right?" and other tags, apologies, deferrals, pre-disclaimers, offset by firm commitments |
+| Effect | **Tone** | How is my tone? | warm words against sharp phrases, "we" share, a label ("Warm and steady") |
+| | **Impact** | Do my points land? | examples, asks and dates named, minus open-ended offers |
 
 ```bash
 conversation-audit notes.txt --scorecard       # add the scorecard to any audit
 conversation-audit scorecard mon.txt tue.txt --speaker "Zarmeen" --html week.html
 ```
 
-The `--html` page answers the five questions in plain language first, then
-shows the eight-dimension scoreboard, a room-by-room heatmap and the three
-moves that would lift the lowest dimensions a level. Scoring is deterministic:
-each rate maps onto the levels through the anchors in `ANCHORS` at the top of
-`conversation_audit/scorecard.py`. Acknowledgment-only turns are set aside,
-and rooms under 250 words are not scored. Voice, pace, pauses and body
-language are out of reach of a transcript, so they are not scored.
+`--json` output carries every row's count under each dimension's `detail`,
+which is what a week-over-week table is built from. Scoring is deterministic:
+each dimension's rate maps onto the levels through the anchors in `ANCHORS`
+at the top of `conversation_audit/scorecard.py`. Acknowledgment-only turns
+are set aside, and rooms under 250 words are not scored. Voice, pace, silent
+pauses and body language are out of reach of a transcript, so they are not
+scored.
 
 ## Getting transcripts in
 
@@ -208,12 +214,12 @@ tune them to your bar.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests   # 62 tests, no dependencies
+python3 -m unittest discover -s tests   # 64 tests, no dependencies
 ```
 
 Layout: `transcript.py` (format parsing, speaker filter) → `metrics.py`
 (detectors + scoring) → `report.py` (terminal rendering) → `store.py`
-(history/trends), with `scorecard.py` (the eight-dimension speaker scorecard)
+(history/trends), with `scorecard.py` (the nine-dimension MECE speaker scorecard)
 and `scorepage.py` (its HTML page), `watch.py` (folder watcher +
 notifications) and `coach.py` (optional Claude deep mode) on top, wired
 together in `cli.py`.
