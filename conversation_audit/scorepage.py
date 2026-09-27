@@ -202,10 +202,12 @@ p { margin: 0; }
 .ladder .mark { position: absolute; top: -7px; width: 4px; height: 26px; border-radius: 2px; background: var(--ink);
   transform: translateX(-2px); box-shadow: 0 0 0 2px var(--page); }
 .ladder .names { position: relative; height: 18px; margin-top: 10px; font-size: 12px; color: var(--ink-3); }
-.ladder .names span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-.ladder .names span:first-child { transform: none; }
-.ladder .names span:last-child { transform: translateX(-100%); }
-.ladder .names span.on { color: var(--ink); font-weight: 700; }
+.ladder .names > span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ladder .names > span:first-child { transform: none; }
+.ladder .names > span:last-child { transform: translateX(-100%); }
+.ladder .names > span.on { color: var(--ink); font-weight: 700; }
+/* five names don't fit a phone: keep the numbers, name only the current level */
+@media (max-width: 560px) { .ladder .names > span:not(.on) .nm { display: none; } }
 
 .weeks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 .wk { display: flex; align-items: baseline; gap: 6px; padding: 6px 10px; border: 1px solid var(--line);
@@ -293,6 +295,10 @@ table.heat { border-collapse: separate; border-spacing: 3px; width: 100%; min-wi
 .heat td.na { color: var(--ink-3); font-weight: 400; background: var(--track); }
 .heat tr.week td { border-top: 2px solid var(--ink); }
 .heat tr.week td.room { font-weight: 800; }
+/* on a phone the table scrolls sideways: keep the room names in view */
+.heat th.room, .heat td.room { position: sticky; left: 0; z-index: 1; background: var(--surface);
+  border-radius: 0; box-shadow: 3px 0 0 var(--surface); }
+@media (max-width: 560px) { .heat td.room { min-width: 128px; } }
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
 .legend .sw { display: inline-flex; align-items: center; gap: 6px; }
 .legend .sw i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
@@ -335,7 +341,8 @@ def _ladder(score: Optional[float], names: bool) -> str:
     ]
     if names:
         spans = "".join(
-            f'<span class="{"on" if i + 1 == lvl else ""}" style="left:{i * 25}%">{i + 1} {n}</span>'
+            f'<span class="{"on" if i + 1 == lvl else ""}" style="left:{i * 25}%">'
+            f'{i + 1}<span class="nm"> {n}</span></span>'
             for i, n in enumerate(sc.LEVELS)
         )
         parts.append(f'<div class="names" aria-hidden="true">{spans}</div>')
