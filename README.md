@@ -105,6 +105,38 @@ clarity  ▂▁▃▄▄▆▇█  (up = better)
 fillers  █▇▆▆▄▃▂▁  (down = better)
 ```
 
+## The speaker scorecard
+
+The clarity score answers "was that clear?". The scorecard answers the
+questions a speaking coach asks — *am I messy, am I structured, do I speak in
+points, how is my tone, how confident do I sound* — on eight dimensions, each
+on the same five levels: **1 Distracting · 2 Developing · 3 Solid · 4 Strong
+· 5 Brilliant**.
+
+| Dimension | Question | Measured as |
+|---|---|---|
+| **Structure** | Am I structured? | framing, transition and closing lines per 1,000 words |
+| **Points** | Do I speak in points? | enumerations ("two things", "number one", "first,") per 1,000 words |
+| **Composure** | Am I messy? | restarts, false starts, stutters, self-corrections and "no, no" bursts per 100 words |
+| **Concision** | Do I get to the point? | run-on sentences per 1,000 words |
+| **Fluency** | Do fillers get in the way? | um/uh, filler "like", phrase fillers and crutch words per 100 words |
+| **Confidence** | Do I sound sure? | hedges, tag questions, apologies, deferrals and pre-disclaimers, net of half-weighted commitments, per 100 words |
+| **Tone** | How do I come across? | warm phrases minus confrontational ones per 1,000 words, plus a label ("Warm and steady", "Cool, sharp in disagreement") |
+| **Impact** | Do my points land? | examples and dated asks or commitments, minus open-ended offers, per 1,000 words |
+
+```bash
+conversation-audit notes.txt --scorecard       # add the scorecard to any audit
+conversation-audit scorecard mon.txt tue.txt --speaker "Zarmeen" --html week.html
+```
+
+The `--html` page answers the five questions in plain language first, then
+shows the eight-dimension scoreboard, a room-by-room heatmap and the three
+moves that would lift the lowest dimensions a level. Scoring is deterministic:
+each rate maps onto the levels through the anchors in `ANCHORS` at the top of
+`conversation_audit/scorecard.py`. Acknowledgment-only turns are set aside,
+and rooms under 250 words are not scored. Voice, pace, pauses and body
+language are out of reach of a transcript, so they are not scored.
+
 ## Getting transcripts in
 
 - **Meetings (Wispr Flow, Granola, Zoom):** export or copy the transcript
@@ -176,10 +208,12 @@ tune them to your bar.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests   # 40 tests, no dependencies
+python3 -m unittest discover -s tests   # 62 tests, no dependencies
 ```
 
 Layout: `transcript.py` (format parsing, speaker filter) → `metrics.py`
 (detectors + scoring) → `report.py` (terminal rendering) → `store.py`
-(history/trends), with `watch.py` (folder watcher + notifications) and
-`coach.py` (optional Claude deep mode) on top, wired together in `cli.py`.
+(history/trends), with `scorecard.py` (the eight-dimension speaker scorecard)
+and `scorepage.py` (its HTML page), `watch.py` (folder watcher +
+notifications) and `coach.py` (optional Claude deep mode) on top, wired
+together in `cli.py`.

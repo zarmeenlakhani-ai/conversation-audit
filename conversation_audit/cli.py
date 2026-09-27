@@ -4,17 +4,20 @@
     conversation-audit -                   audit stdin (pbpaste | conversation-audit -)
     conversation-audit watch DIR           audit new transcripts as they land
     conversation-audit trends              your last audits, with sparklines
+    conversation-audit scorecard FILE...   speaker scorecard across meetings (--html page)
 """
 
 import argparse
 import json
+import os
 import sys
 from typing import List, Optional
 
-from conversation_audit import __version__, brief, metrics, report, store
+from conversation_audit import (__version__, brief, metrics, report, scorecard,
+                                scorepage, store)
 from conversation_audit.transcript import load_transcript
 
-COMMANDS = {"analyze", "watch", "trends"}
+COMMANDS = {"analyze", "watch", "trends", "scorecard"}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -42,6 +45,9 @@ def _build_parser() -> argparse.ArgumentParser:
                          " recommendations")
     analyze.add_argument("--pointers", type=int, default=3, metavar="N",
                          help="pointers to show with --brief, 1-10 (default 3)")
+    analyze.add_argument("--scorecard", action="store_true",
+                         help="also score the speaker on the eight scorecard"
+                         " dimensions (structure, points, composure, tone...)")
     analyze.add_argument("--json", action="store_true", dest="as_json",
                          help="emit metrics as JSON instead of the report")
     analyze.add_argument("--no-store", action="store_true",
@@ -59,6 +65,19 @@ def _build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--model")
     watch.add_argument("--once", action="store_true",
                        help="audit everything already in the folder, then exit")
+
+    card = sub.add_parser("scorecard", help="speaker scorecard across one or more"
+                          " meetings, optionally as an HTML page")
+    card.add_argument("paths", nargs="+", metavar="FILE", help="transcript file(s)")
+    card.add_argument("--speaker", metavar="NAME",
+                      help="in speaker-labeled transcripts, score only this voice")
+    card.add_argument("--html", metavar="OUT", help="write the scorecard page here")
+    card.add_argument("--title", default="Speaker Scorecard", help="page title")
+    card.add_argument("--label", default="This week", help="label for this period")
+    card.add_argument("--notes", metavar="JSON",
+                      help="verdict, quotes and moves to add to the page")
+    card.add_argument("--json", action="store_true", dest="as_json",
+                      help="emit the scorecard as JSON")
 
     trends = sub.add_parser("trends", help="show your recent audits")
     trends.add_argument("-n", type=int, default=12, metavar="N",
@@ -105,8 +124,15 @@ def _run_analyze(args: argparse.Namespace) -> int:
             exit_code = 2
             continue
 
+        card = None
+        if args.scorecard:
+            card = scorecard.build([u for _, u in transcript.utterances],
+                                   source=analysis.source)
+
         if args.as_json:
             results.append(analysis.to_dict())
+            if card is not None:
+                results[-1]["scorecard"] = card.to_dict()
             if args.brief:
                 results[-1]["pointers"] = brief.pointers(analysis,
                                                          args.pointers)
@@ -114,10 +140,14 @@ def _run_analyze(args: argparse.Namespace) -> int:
             if i > 0:
                 print()
             print(brief.render_brief(analysis, args.pointers))
+            if card is not None:
+                print("\n" + scorecard.render(card))
         else:
             if i > 0:
                 print("\n" + "=" * 72 + "\n")
             print(report.render(analysis, color=color))
+            if card is not None:
+                print("\n" + scorecard.render(card))
             if len(transcript.speakers) > 1 and not args.speaker:
                 shares = ", ".join(
                     f"{name} ({words}w)" for name, words in transcript.word_shares
@@ -152,6 +182,43 @@ def _run_analyze(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _run_scorecard(args: argparse.Namespace) -> int:
+    rooms = []
+    for path in args.paths:
+        try:
+            transcript = load_transcript(path)
+        except OSError as e:
+            print(f"cannot read {path}: {e}", file=sys.stderr)
+            return 2
+        if args.speaker and transcript.speakers:
+            filtered = transcript.for_speaker(args.speaker)
+            if not filtered.utterances:
+                labels = ", ".join(transcript.speakers)
+                print(f"no utterances match speaker '{args.speaker}' in {path}"
+                      f" (speakers: {labels})", file=sys.stderr)
+                return 2
+            transcript = filtered
+        name = os.path.splitext(os.path.basename(path))[0] if path != "-" else "stdin"
+        rooms.append((name, "", [u for _, u in transcript.utterances]))
+    notes = None
+    if args.notes:
+        with open(args.notes, encoding="utf-8") as fh:
+            notes = json.load(fh)
+    spec = scorepage.week_spec(rooms, title=args.title, eyebrow=args.title,
+                               week_label=args.label, notes=notes)
+    if args.html:
+        with open(args.html, "w", encoding="utf-8") as fh:
+            fh.write(scorepage.render(spec))
+    if args.as_json:
+        print(json.dumps(spec, indent=2, ensure_ascii=False))
+        return 0
+    turns = [t for _, _, ts in rooms for t in ts]
+    print(scorecard.render(scorecard.build(turns, source=args.label)))
+    if args.html:
+        print(f"\nwrote {args.html}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # allow `conversation-audit notes.txt` without the explicit subcommand
@@ -168,6 +235,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return watch(args.directory, interval=args.interval,
                      speaker=args.speaker, deep=args.deep, model=args.model,
                      once=args.once, brief=args.brief)
+    if args.command == "scorecard":
+        return _run_scorecard(args)
     if args.command == "trends":
         rendered = store.render_trends(args.n)
         if rendered is None:
